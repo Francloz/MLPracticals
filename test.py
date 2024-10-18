@@ -1,137 +1,63 @@
-import pandas as pd
-# import sklearn as skl
-import matplotlib.pyplot as plt
-import seaborn as sns
-import numpy as np
-from sklearn.feature_selection import SequentialFeatureSelector, f_classif, chi2, mutual_info_classif
-from sklearn.linear_model import LogisticRegression
-from sklearn.neighbors import KNeighborsClassifier
-from sklearn.neural_network import MLPClassifier
-
-
-def random_selection():
-    return np.random.choice([True, False], size=len(all_vars))
-
-
-def get_SFS(start, end, direction, model, df, features, target) -> np.ndarray:
-    """
-    sklearn SequentialFeatureSelector(estimator, *, n_features_to_select='auto', tol=None, direction='forward', scoring=None, cv=5, n_jobs=None)
-    """
-
-    if direction not in ['forward', 'backward']:
-        return np.empty(0)
-
-    tol = None
-    n_fea = 'auto'
-
-    if end == 'performance_plateau':
-        tol = 0.025
-    elif end[:len('limit_fea')] == 'limit_fea':
-        n_fea = int(end[len('limit_fea') + 1:])
-
-    sfs = SequentialFeatureSelector(estimator=model, direction=direction, tol=tol, n_features_to_select=n_fea,
-                                    n_jobs=-1)
-
-    if start == 'random':
-        start_subset = random_selection()
-        curr_vars = np.array(features)[start_subset]
-        X = df[curr_vars]
-        y = df[target]
-        sfs.fit(X, y)
-        selected = curr_vars[sfs.get_support()]
-        result = np.array((var in selected) for var in all_vars)
-    else:
-        X = df[features]
-        y = df[target]
-        sfs.fit(X, y)
-        result = sfs.get_support()
-    return result
-
-
-def get_fss_filter(start, end, direction, df, features, target, metric='mutual_information'):
-    if end == 'timeout' or direction == 'exhaustive':
-        return np.zeros(0)
-
-    if end == 'performance_plateau':
-        return np.zeros(0)
-
-    if start == 'random':
-        subset = random_selection()
-    elif start == 'none':
-        subset = np.zeros(len(features), dtype=bool)
-    else:  # start == 'all':
-        subset = np.ones(len(features), dtype=bool)
-
-    if end == 'performance_plateau':
-        min_delta = 0.025
-        score_delta = np.inf
-        while score_delta < min_delta and np.sum(subset) < len(features):
-
-            for (i, fea) in enumerate(features):
-                if direction == 'forward' and not subset[i]:
-                    break
-                elif direction == 'backtrack' and subset[i]:
-                    break
-
-    elif end[:len('limit_fea')] == 'limit_fea':
-        n_fea = int(end[len('limit_fea') + 1:])
-        assert (n_fea < len(features))
-
-        while ((np.sum(subset) < n_fea and direction == 'forward') or
-               (np.sum(subset) > n_fea and direction == 'backtrack')):
-            if metric == 'mutual_information':
-                scores = mutual_info_classif(df[features], df[target])
-            elif metric == 'f_val':
-                scores = -f_classif(df[features], df[target])[1]
-            elif metric == 'chi2':
-                scores = -chi2(df[features], df[target])[1]
-            else:
-                raise ValueError("Invalid metric used for filter FSS: " + metric)
-
-            if direction == 'forward':
-                mask = subset.astype(int)
-                scores = scores * (1 - mask) - mask * (np.max(scores)+1)
-                to_select = n_fea - np.sum(subset)
-                indices = np.argsort(scores)
-                kbest = indices[-to_select:]
-                kscores = scores[kbest]
-                subset[kbest] = True
-            elif direction == 'backtrack':
-                scores = scores * subset.astype(int) + (1-subset.astype(int)) * np.inf
-                to_select = np.sum(subset) - n_fea
-                kworst = np.argsort(scores)[to_select:]
-                kscores = scores[kworst]
-                subset[kworst] = True
-
-            assert(np.sum(subset) == n_fea)
-    return subset
-
-
-def fss(start_fs, end_condition, dir, eval_strategy, df, features, target, model=None) -> np.ndarray:
-    if eval_strategy == 'sequential_feature_selection':
-        return get_SFS(start_fs, end_condition, dir, model, df=df, features=features, target=target)
-    elif eval_strategy == 'grasp':
-        return np.empty(0)  # raise Exception("Evaluator unimplemented: " + eval_strategy)
-    elif eval_strategy == 'symmetrical_uncertainty':
-        return np.empty(0)  # raise Exception("Evaluator unimplemented: " + eval_strategy)
-    elif eval_strategy == 't-test':
-        return np.empty(0)  # raise Exception("Evaluator unimplemented: " + eval_strategy)
-    elif eval_strategy == 'kruskal-wallis':
-        return np.empty(0)  # raise Exception("Evaluator unimplemented: " + eval_strategy)
-    elif eval_strategy == 'mutual_information':
-        return get_fss_filter(start_fs, end_condition, dir,  metric='mutual_information', df=df, features=features, target=target)
-    elif eval_strategy == 'chi2':
-        return get_fss_filter(start_fs, end_condition, dir, metric='chi2', df=df, features=features, target=target)
-    else:
-        raise Exception("Invalid evaluator strategy found: " + eval_strategy)
-
-
+from fss import *
 
 if __name__ == "__main__":
     # Find this dataset at https://www.kaggle.com/datasets/alexteboul/diabetes-health-indicators-dataset
     df = pd.read_csv("diabetes_012_health_indicators_BRFSS2015.csv")
 
     df = df.sample(n=10000)  # For debugging purposes
+
+    # Print column labels
+    print("Column labels:", df.columns)
+    variable_descriptions = {
+        "Diabetes_012": "Diabetes status: 0 = no diabetes, 1 = prediabetes, 2 = diabetes",
+        "HighBP": "High Blood Pressure: 0 = no high BP, 1 = high BP",
+        "HighChol": "High Cholesterol: 0 = no high cholesterol, 1 = high cholesterol",
+        "CholCheck": "Cholesterol check in past 5 years: 0 = no, 1 = yes",
+        "BMI": "Body Mass Index",
+        "Smoker": "Have smoked at least 100 cigarettes in lifetime: 0 = no, 1 = yes",
+        "Stroke": "Ever had a stroke: 0 = no, 1 = yes",
+        "HeartDiseaseorAttack": "Coronary heart disease or myocardial infarction: 0 = no, 1 = yes",
+        "PhysActivity": "Physical activity in past 30 days (excluding job): 0 = no, 1 = yes",
+        "Fruits": "Consume fruit 1 or more times per day: 0 = no, 1 = yes",
+        "Veggies": "Consume vegetables 1 or more times per day: 0 = no, 1 = yes",
+        "HvyAlcoholConsump": "Heavy drinker (men >14 drinks/week, women >7 drinks/week): 0 = no, 1 = yes",
+        "AnyHealthcare": "Have any kind of health care coverage: 0 = no, 1 = yes",
+        "NoDocbcCost": "Could not see doctor due to cost in past 12 months: 0 = no, 1 = yes",
+        "GenHlth": "General health status: 1 = excellent, 2 = very good, 3 = good, 4 = fair, 5 = poor",
+        "MentHlth": "Number of days mental health was not good in past 30 days (1-30)",
+        "PhysHlth": "Number of days physical health was not good in past 30 days (1-30)",
+        "DiffWalk": "Serious difficulty walking or climbing stairs: 0 = no, 1 = yes",
+        "Sex": "Sex: 0 = female, 1 = male",
+        "Age": "Age category: 1 = 18-24, 9 = 60-64, 13 = 80 or older",
+        "Education": "Education level: 1 = Never attended school or only kindergarten, 2 = Grades 1-8, 3 = Grades 9-11, 4 = Grade 12 or GED, 5 = Some college, 6 = College graduate",
+        "Income": "Income level: 1 = less than $10,000, 5 = less than $35,000, 8 = $75,000 or more"
+    }
+
+    # Categorical Variables
+    nominal_vars = [
+        'HighBP', 'HighChol', 'CholCheck', 'Smoker',
+        'Stroke', 'HeartDiseaseorAttack', 'PhysActivity', 'Fruits',
+        'Veggies', 'HvyAlcoholConsump', 'AnyHealthcare', 'NoDocbcCost',
+        'DiffWalk', 'Sex'
+    ]
+
+    ordinal_vars = [
+        'GenHlth', 'Age', 'Education', 'Income'
+    ]
+
+    # Numerical Variables
+    numerical_vars = [
+        'BMI', 'MentHlth', 'PhysHlth'
+    ]
+
+    categorical_vars = ordinal_vars + nominal_vars
+    all_vars = categorical_vars + numerical_vars
+    response_var = 'Diabetes_012'
+
+    df_nominal = df[nominal_vars]
+    df_ordinal = df[ordinal_vars]
+    df_numerical = df[numerical_vars]
+    df_categorical = df[categorical_vars]
 
     # Print column labels
     print("Column labels:", df.columns)
@@ -198,10 +124,10 @@ if __name__ == "__main__":
         'none', 'random', 'all'
     ]
     search_organization = [
-        'exhaustive', 'forward', 'backward'  # , 'stepwise', 'metaheuristic'
+        'forward', 'backward'  # , 'stepwise', 'metaheuristic'
     ]
     evaluation_strategy = [
-        'filter', 'wrapper'
+        'wrapper', 'filter'
     ]
     """"
     Univariate:
@@ -229,7 +155,7 @@ if __name__ == "__main__":
         Conditional mutual information Fleuret (2004)
     """
     filter_options = [
-        'symmetrical_uncertainty', 't-test', 'kruskal-wallis', 'conditional_mutual_information'
+        'chi2', 'mutual_information'
     ]
     """
     Deterministic heuristics:
@@ -260,27 +186,24 @@ if __name__ == "__main__":
                 Evolution strategies Vatolkin et al. (2009)
     """
     wrapper_options = [
-        'sequential_feature_selection', 'grasp'
+        'sequential_feature_selection',
     ]
     stopping_criterion = [
-        'timeout', 'performance_plateau',
+        # 'performance_plateau',
         'limit_fea_8', 'limit_fea_10', 'limit_fea_12', 'limit_fea_14', 'limit_fea_16', 'limit_fea_18'
     ]
     wrapper_models = [
         KNeighborsClassifier(10, weights='distance'),
-        LogisticRegression(random_state=0),
-        MLPClassifier(solver='adam', alpha=1e-5,
-                      hidden_layer_sizes=(32), random_state=1),
+        LogisticRegression(random_state=1, max_iter=5000),
+        # MLPClassifier(solver='adam', alpha=1e-5,
+        #              hidden_layer_sizes=(32), random_state=1),
         MLPClassifier(solver='adam', alpha=1e-5,
                       hidden_layer_sizes=(32, 32), random_state=1),
         MLPClassifier(solver='adam', alpha=1e-5,
                       hidden_layer_sizes=(32, 64, 32), random_state=1),
-        MLPClassifier(solver='adam', alpha=1e-5,
-                      hidden_layer_sizes=(32, 64, 64, 32), random_state=1)
+        # MLPClassifier(solver='adam', alpha=1e-5,
+        #              hidden_layer_sizes=(32, 64, 64, 32), random_state=1)
     ]
-
-    evaluation_strategy = ['filter']
-    filter_options = ['chi2', 'mutual_information']
 
     for start in starting_point:
         for direction in search_organization:
@@ -305,4 +228,3 @@ if __name__ == "__main__":
                                         f"Selection starting with {start} till {end}, moving {direction}, with evaluation {subevaluator} of {model.__class__} is {np.sort(np.array(all_vars)[fs])}")
                     else:
                         raise Exception("Invalid evaluation strategy found: " + evaluator)
-
