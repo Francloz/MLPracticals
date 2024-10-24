@@ -5,7 +5,7 @@ import seaborn as sns
 import numpy as np
 
 # Find this dataset at https://www.kaggle.com/datasets/alexteboul/diabetes-health-indicators-dataset
-df = pd.read_csv("diabetes_012_health_indicators_BRFSS2015.csv")
+df = pd.read_csv("csv/diabetes_012_health_indicators_BRFSS2015.csv")
 
 df = df.sample(n=10000)  # For debugging purposes
 
@@ -50,12 +50,12 @@ nominal_vars = [
 ]
 
 ordinal_vars = [
-    'GenHlth', 'Age', 'Education', 'Income'
+   'Education', 'Income'
 ]
 
 # Numerical Variables
 numerical_vars = [
-    'BMI', 'MentHlth', 'PhysHlth'
+    'BMI', 'MentHlth', 'PhysHlth', 'GenHlth', 'Age'
 ]
 
 categorical_vars = ordinal_vars + nominal_vars
